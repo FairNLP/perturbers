@@ -22,6 +22,8 @@ class Perturber:
         if model is None:
             model_name = "facebook/perturber"
             self.model = BartForConditionalGeneration.from_pretrained(model_name)
+            self.config.sep_token = ","
+            self.config.pert_sep_token = "<PERT_SEP>"
         else:
             model_name = model.config.name_or_path
             self.model = model
