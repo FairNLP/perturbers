@@ -211,8 +211,8 @@ def train_perturber(c: TrainingConfig):
         train_ds = train_ds.select(range(128))
         val_ds = val_ds.select(range(128))
 
-    train_ds = train_ds.map(lambda x: add_indices(x, tokenizer, tokenizer_kwargs), num_proc=c.num_workers)
-    val_ds = val_ds.map(lambda x: add_indices(x, tokenizer, tokenizer_kwargs), num_proc=c.num_workers)
+    train_ds = train_ds.map(lambda x: add_indices(x, tokenizer, tokenizer_kwargs), num_proc=max(c.num_workers, 1))
+    val_ds = val_ds.map(lambda x: add_indices(x, tokenizer, tokenizer_kwargs), num_proc=max(c.num_workers, 1))
 
     collate_fn = get_collate_fn(c, tokenizer, tokenizer_kwargs)
 

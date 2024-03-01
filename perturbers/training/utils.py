@@ -27,7 +27,7 @@ class TrainingConfig:
     pert_sep_token: str = '<PERT_SEP>'
     debug: bool = False
     gradient_clipping_value: float = 0.1
-    accumulate_grad_batches: int = 0
+    accumulate_grad_batches: int = 1
     output_path: str = ""
     push_to_hub: bool = False
     hub_repo_id: str = ""
