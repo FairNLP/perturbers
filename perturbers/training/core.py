@@ -29,6 +29,8 @@ class LightningWrapper(lightning.LightningModule):
 
         self.learning_rate = c.learning_rate
         self.num_steps = c.train_steps
+        self.train_batch_size = c.train_batch_size
+        self.test_batch_size = c.test_batch_size
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
 
         self.train_metrics = self.get_metric_dict(c, "train")
@@ -57,7 +59,10 @@ class LightningWrapper(lightning.LightningModule):
                     value = metric(preds=outputs[idx].unsqueeze(0), target=batch['labels'][idx].unsqueeze(0))
                 else:
                     value = metric(preds=outputs, target=batch['labels'])
-            self.log(metric_key, value, on_step=metric_key.startswith("train"), on_epoch=True, prog_bar=True)
+            else:
+                raise NotImplementedError(f"Unsupported metric key: {metric_key}")
+            self.log(metric_key, value=value, on_step=metric_key.startswith("train"), on_epoch=True, prog_bar=True,
+                     batch_size=self.train_batch_size if metric_key.startswith("train") else self.test_batch_size)
 
     @staticmethod
     def clear_metrics(metrics):
@@ -66,20 +71,20 @@ class LightningWrapper(lightning.LightningModule):
 
     def training_step(self, batch, batch_idx):
         outputs, loss = self.forward(batch)
-        self.log("train_loss", loss, on_step=True, on_epoch=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, batch_size=self.train_batch_size)
         self.update_metrics(batch, outputs, self.train_metrics)
         return loss
 
     def validation_step(self, batch, batch_idx):
         outputs, loss = self.forward(batch)
-        self.log("val_loss", loss, on_step=False, on_epoch=True)
+        self.log("val_loss", loss, on_step=False, on_epoch=True, batch_size=self.test_batch_size)
         self.update_metrics(batch, outputs, self.val_metrics)
         return loss
 
     def test_step(self, batch, batch_idx):
         outputs, loss = self.forward(batch)
         generations = self.generate(batch)
-        self.log("test_loss", loss, on_step=False, on_epoch=True)
+        self.log("test_loss", loss, on_step=False, on_epoch=True, batch_size=self.test_batch_size)
         self.update_metrics(batch, outputs, self.test_metrics, generations)
         return loss
 
@@ -123,8 +128,7 @@ class LightningWrapper(lightning.LightningModule):
         return [optimizer], [scheduler]
 
 
-def get_collate_fn(c: TrainingConfig, tokenizer):
-    tokenizer_kwargs = {"padding": True, "truncation": True, "max_length": c.max_length}
+def get_collate_fn(c: TrainingConfig, tokenizer, tokenizer_kwargs):
     input_template = PerturberTemplate(sep=c.sep_token, pert_sep=c.pert_sep_token,
                                        original=c.model_name == "facebook/perturber")
 
@@ -134,10 +138,7 @@ def get_collate_fn(c: TrainingConfig, tokenizer):
         for i, item in enumerate(batch):
             perturbed.append(item['perturbed'])
             original.append(input_template(item["original"], item["selected_word"], item["target_attribute"]))
-            idx = get_diff_indices(
-                tokenizer(item['original'], **tokenizer_kwargs).data['input_ids'],
-                tokenizer(item['perturbed'], **tokenizer_kwargs).data['input_ids']
-            )
+            idx = item["perturbed_idx"]
             perturbed_x += [i] * len(idx)
             perturbed_y += idx
 
@@ -157,7 +158,7 @@ def get_collate_fn(c: TrainingConfig, tokenizer):
 def get_loggers(c: TrainingConfig):
     loggers = [CSVLogger(save_dir=c.save_path, name=c.version)]
     if c.use_wandb:
-        loggers.append(WandbLogger(name="perturbers", save_dir=c.save_path, version=c.version))
+        loggers.append(WandbLogger(name=c.version, save_dir=c.save_path, version=c.version, project="perturbers"))
     return loggers
 
 
@@ -181,6 +182,14 @@ def get_callbacks(c: TrainingConfig):
     ]
 
 
+def add_indices(sample, tokenizer, tokenizer_kwargs):
+    sample["perturbed_idx"] = get_diff_indices(
+        tokenizer(sample['original'], **tokenizer_kwargs).data['input_ids'],
+        tokenizer(sample['perturbed'], **tokenizer_kwargs).data['input_ids']
+    )
+    return sample
+
+
 def train_perturber(c: TrainingConfig):
     seed_everything(c.seed, workers=True)
 
@@ -191,6 +200,7 @@ def train_perturber(c: TrainingConfig):
 
     tokenizer = AutoTokenizer.from_pretrained(c.model_name, add_prefix_space=True)
     tokenizer.add_tokens([c.sep_token, c.pert_sep_token], special_tokens=True)
+    tokenizer_kwargs = {"padding": True, "truncation": True, "max_length": c.max_length}
     model = LightningWrapper(c, tokenizer)
     dataset = load_dataset(c.dataset_name)
 
@@ -201,10 +211,14 @@ def train_perturber(c: TrainingConfig):
         train_ds = train_ds.select(range(128))
         val_ds = val_ds.select(range(128))
 
-    collate_fn = get_collate_fn(c, tokenizer)
+    train_ds = train_ds.map(lambda x: add_indices(x, tokenizer, tokenizer_kwargs), num_proc=c.num_workers)
+    val_ds = val_ds.map(lambda x: add_indices(x, tokenizer, tokenizer_kwargs), num_proc=c.num_workers)
 
-    train_dataloader = DataLoader(train_ds, shuffle=True, batch_size=c.train_batch_size, collate_fn=collate_fn)
-    val_dataloader = DataLoader(val_ds, shuffle=False, batch_size=c.test_batch_size, collate_fn=collate_fn)
+    collate_fn = get_collate_fn(c, tokenizer, tokenizer_kwargs)
+
+    dl_kwargs = {"collate_fn": collate_fn, "num_workers": c.num_workers}
+    train_dataloader = DataLoader(train_ds, shuffle=True, batch_size=c.train_batch_size, **dl_kwargs)
+    val_dataloader = DataLoader(val_ds, shuffle=False, batch_size=c.test_batch_size, **dl_kwargs)
 
     trainer = Trainer(
         accelerator="auto" if (torch.cuda.is_available() and c.use_gpu) else "cpu",

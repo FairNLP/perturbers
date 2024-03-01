@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from perturbers.training.core import train_perturber
 from perturbers.training.utils import TrainingConfig
 
@@ -14,10 +16,11 @@ def main():
         test_batch_size=16,
         accumulate_grad_batches=4,
         es_patience=5,
-        version="perturber-small",
+        version=f"perturber-small-{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}",
         learning_rate=1e-5,
         push_to_hub=True,
         hub_repo_id="fairnlp/perturber-small",
+        num_workers=7,
     )
 
     train_perturber(config)

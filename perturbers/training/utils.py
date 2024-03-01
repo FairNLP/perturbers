@@ -31,6 +31,7 @@ class TrainingConfig:
     output_path: str = ""
     push_to_hub: bool = False
     hub_repo_id: str = ""
+    num_workers: int = 0
 
 
 def get_diff_indices(tokens1, tokens2):
