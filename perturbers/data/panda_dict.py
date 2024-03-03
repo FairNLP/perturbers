@@ -1,5 +1,10 @@
 from datasets import concatenate_datasets, load_dataset
 
+GENDER_ATTRIBUTES = {"man", "woman", "non-binary"}
+RACE_ATTRIBUTES = {"black", "white", "hispanic", "native-american", "pacific-islander"}
+AGE_ATTRIBUTES = {"child", "young", "middle-aged", "senior", "adult"}
+ALL_ATTRIBUTES = GENDER_ATTRIBUTES | RACE_ATTRIBUTES | AGE_ATTRIBUTES
+
 
 def get_panda_dict():
     dataset = load_dataset("facebook/panda")

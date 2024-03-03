@@ -4,7 +4,7 @@ from typing import Optional, Union
 
 from transformers import BartForConditionalGeneration, AutoTokenizer, PreTrainedModel
 
-from perturbers.data.panda_dict import get_panda_dict
+from perturbers.data.panda_dict import get_panda_dict, ALL_ATTRIBUTES
 
 
 @dataclass
