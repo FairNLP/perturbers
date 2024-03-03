@@ -44,7 +44,7 @@ class Perturber:
             output_tokens,
             skip_special_tokens=True,
             max_new_tokens=self.model.config.max_length
-        )[0]
+        )[0].lstrip()
 
     def __call__(self, input_txt, mode='word_list', tokenizer_kwargs=None, retry_unchanged=False):
 
