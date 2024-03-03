@@ -10,13 +10,14 @@ def main():
         use_wandb=True,
         use_gpu=True,
         max_length=512,
-        train_batch_size=16,
-        test_batch_size=16,
-        accumulate_grad_batches=4,
+        train_batch_size=8,
+        test_batch_size=8,
+        accumulate_grad_batches=8,
         es_patience=5,
         version="original-perturber",
-        sep_token=", ",
-        pert_sep_token=" <PERT_SEP> ",
+        sep_token=",",
+        pert_sep_token="<PERT_SEP>",
+        # TODO add configuration that configures original template whitespace
     )
 
     train_perturber(test_config)
