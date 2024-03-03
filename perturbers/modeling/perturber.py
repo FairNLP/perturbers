@@ -1,8 +1,8 @@
 import random
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
-from transformers import BartForConditionalGeneration, AutoTokenizer
+from transformers import BartForConditionalGeneration, AutoTokenizer, PreTrainedModel
 
 from perturbers.data.panda_dict import get_panda_dict
 
@@ -16,17 +16,21 @@ class PerturberConfig:
 
 class Perturber:
 
-    def __init__(self, model=None, config: Optional[PerturberConfig] = None):
+    def __init__(self, model: Optional[Union[PreTrainedModel, str]] = None, config: Optional[PerturberConfig] = None):
         self.config = config if config is not None else PerturberConfig()
 
-        if model is None:
+        if isinstance(model, PreTrainedModel):
+            model_name = model.config.name_or_path
+            self.model = model
+        elif isinstance(model, str):
+            model_name = model
+            self.model = BartForConditionalGeneration.from_pretrained(model)
+        else:
             model_name = "facebook/perturber"
             self.model = BartForConditionalGeneration.from_pretrained(model_name)
             self.config.sep_token = ","
             self.config.pert_sep_token = "<PERT_SEP>"
-        else:
-            model_name = model.config.name_or_path
-            self.model = model
+
         self.model.config.max_length = self.config.max_length
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, add_prefix_space=True)
         self.tokenizer.add_tokens([self.config.pert_sep_token], special_tokens=True)
