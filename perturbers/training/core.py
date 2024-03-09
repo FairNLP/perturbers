@@ -33,11 +33,11 @@ class LightningWrapper(lightning.LightningModule):
         self.test_batch_size = c.test_batch_size
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
 
-        self.train_metrics = self.get_metric_dict(c, "train")
-        self.val_metrics = self.get_metric_dict(c, "val")
-        self.test_metrics = self.get_metric_dict(c, "test")
+        self.train_metrics = self.get_metric_dict("train")
+        self.val_metrics = self.get_metric_dict("val")
+        self.test_metrics = self.get_metric_dict("test")
 
-    def get_metric_dict(self, c: TrainingConfig, split: str):
+    def get_metric_dict(self, split: str):
         metrics = {
             f'{split}_ppl': Perplexity(ignore_index=self.tokenizer.pad_token_id).to(self._device),
             f'{split}_ppl_perturbed': Perplexity(ignore_index=self.tokenizer.pad_token_id).to(self._device),
