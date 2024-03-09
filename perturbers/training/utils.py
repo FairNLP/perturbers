@@ -35,6 +35,16 @@ class TrainingConfig:
 
 
 def get_diff_indices(tokens1, tokens2):
+    """
+    Get the indices of the tokens in tokens2 that differ from those in tokens1 using difflib's SequenceMatcher.
+
+    Args:
+        tokens1: Original tokens
+        tokens2: Pertubed tokens
+
+    Returns:
+        List of indices of tokens in tokens2 that differ from those in tokens1
+    """
     matcher = SequenceMatcher(None, tokens1, tokens2)
     diff_indices = []
 

@@ -17,6 +17,9 @@ from perturbers.training.utils import TrainingConfig, get_diff_indices
 
 
 class LightningWrapper(lightning.LightningModule):
+    """
+    Wrapper class for the perturber model to be used with PyTorch Lightning.
+    """
 
     def __init__(self, c: TrainingConfig, tokenizer):
         super().__init__()
@@ -129,6 +132,19 @@ class LightningWrapper(lightning.LightningModule):
 
 
 def get_collate_fn(c: TrainingConfig, tokenizer, tokenizer_kwargs):
+    """
+    Get the collate function for the dataloaders.
+
+    Args:
+        c: The training configuration object
+
+        tokenizer: The tokenizer to be used for tokenizing the input
+
+        tokenizer_kwargs: Additional keyword arguments to be passed to the tokenizer
+
+    Returns:
+        The collate function for the dataloaders
+    """
     input_template = PerturberTemplate(sep=c.sep_token, pert_sep=c.pert_sep_token,
                                        original=c.model_name == "facebook/perturber")
 
@@ -183,6 +199,10 @@ def get_callbacks(c: TrainingConfig):
 
 
 def add_indices(sample, tokenizer, tokenizer_kwargs):
+    """
+    Add the indices of the tokens that are different between the original and perturbed text to the sample dictionary.
+    Function signature is intended to be used with the `map` method of the Hugging Face datasets library.
+    """
     sample["perturbed_idx"] = get_diff_indices(
         tokenizer(sample['original'], **tokenizer_kwargs).data['input_ids'],
         tokenizer(sample['perturbed'], **tokenizer_kwargs).data['input_ids']
@@ -191,6 +211,9 @@ def add_indices(sample, tokenizer, tokenizer_kwargs):
 
 
 def train_perturber(c: TrainingConfig):
+    """
+    Train a perturber model using the specified configuration.
+    """
     seed_everything(c.seed, workers=True)
 
     if c.debug:
