@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Tuple, Optional
 
 import lightning
 import torch
@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from torchmetrics.text import Perplexity, BLEUScore
 from transformers import AutoModel, BartForConditionalGeneration  # noqa 401
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import PreTrainedTokenizerBase, PreTrainedModel
 
 from perturbers.modeling.perturber import PerturberTemplate
 from perturbers.training.utils import TrainingConfig, get_diff_indices
@@ -21,7 +22,7 @@ class LightningWrapper(lightning.LightningModule):
     Wrapper class for the perturber model to be used with PyTorch Lightning.
     """
 
-    def __init__(self, c: TrainingConfig, tokenizer):
+    def __init__(self, c: TrainingConfig, tokenizer: PreTrainedTokenizerBase) -> None:
         super().__init__()
         # self.model = AutoModel.from_pretrained(c.model_name)
         self.model = BartForConditionalGeneration.from_pretrained(c.model_name)
@@ -40,7 +41,7 @@ class LightningWrapper(lightning.LightningModule):
         self.val_metrics = self.get_metric_dict("val")
         self.test_metrics = self.get_metric_dict("test")
 
-    def get_metric_dict(self, split: str):
+    def get_metric_dict(self, split: str) -> dict[str, torch.nn.Module]:
         metrics = {
             f'{split}_ppl': Perplexity(ignore_index=self.tokenizer.pad_token_id).to(self._device),
             f'{split}_ppl_perturbed': Perplexity(ignore_index=self.tokenizer.pad_token_id).to(self._device),
@@ -49,7 +50,13 @@ class LightningWrapper(lightning.LightningModule):
             metrics[f'{split}_bleu4'] = BLEUScore(n_gram=4).to(self._device)
         return metrics
 
-    def update_metrics(self, batch, outputs, metrics, generations=None):
+    def update_metrics(
+            self,
+            batch: dict,
+            outputs: dict,
+            metrics: dict[str, torch.nn.Module],
+            generations: Optional[List[str]] = None
+    ) -> None:
         for metric_key, metric in metrics.items():
             if "bleu" in metric_key and generations is not None:
                 value = metric(
@@ -68,23 +75,23 @@ class LightningWrapper(lightning.LightningModule):
                      batch_size=self.train_batch_size if metric_key.startswith("train") else self.test_batch_size)
 
     @staticmethod
-    def clear_metrics(metrics):
+    def clear_metrics(metrics: dict[str, torch.nn.Module]):
         for metric_key, metric in metrics.items():
             metric.reset()
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch: dict):
         outputs, loss = self.forward(batch)
         self.log("train_loss", loss, on_step=True, on_epoch=True, batch_size=self.train_batch_size)
         self.update_metrics(batch, outputs, self.train_metrics)
         return loss
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch: dict):
         outputs, loss = self.forward(batch)
         self.log("val_loss", loss, on_step=False, on_epoch=True, batch_size=self.test_batch_size)
         self.update_metrics(batch, outputs, self.val_metrics)
         return loss
 
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch: dict):
         outputs, loss = self.forward(batch)
         generations = self.generate(batch)
         self.log("test_loss", loss, on_step=False, on_epoch=True, batch_size=self.test_batch_size)
@@ -100,18 +107,18 @@ class LightningWrapper(lightning.LightningModule):
     def on_test_epoch_end(self) -> None:
         self.clear_metrics(self.test_metrics)
 
-    def forward(self, batch):
+    def forward(self, batch: dict) -> Tuple[torch.Tensor, torch.Tensor]:
         outputs = self.model(**{k: v for k, v in batch.items() if k in ["input_ids", "attention_mask", "labels"]})
         return outputs.logits, outputs.loss
 
-    def generate(self, batch):
+    def generate(self, batch: dict) -> List[str]:
         generations = self.model.generate(
             **{k: v for k, v in batch.items() if k in ["input_ids", "attention_mask"]},
             max_length=batch['input_ids'].shape[-1],
         )
         return self.tokenizer.batch_decode(generations, skip_special_tokens=True)
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> Tuple[List[torch.optim.Optimizer], List[dict]]:
         optimizer = torch.optim.AdamW(
             params=[p for p in self.model.parameters()],
             lr=self.learning_rate,
@@ -131,7 +138,7 @@ class LightningWrapper(lightning.LightningModule):
         return [optimizer], [scheduler]
 
 
-def get_collate_fn(c: TrainingConfig, tokenizer, tokenizer_kwargs):
+def get_collate_fn(c: TrainingConfig, tokenizer: PreTrainedTokenizerBase, tokenizer_kwargs: dict):
     """
     Get the collate function for the dataloaders.
 
@@ -148,7 +155,7 @@ def get_collate_fn(c: TrainingConfig, tokenizer, tokenizer_kwargs):
     input_template = PerturberTemplate(sep=c.sep_token, pert_sep=c.pert_sep_token,
                                        original=c.model_name == "facebook/perturber")
 
-    def collate_fn(batch: List):
+    def collate_fn(batch: List) -> dict:
         original, perturbed = [], []
         perturbed_x, perturbed_y = [], []
         for i, item in enumerate(batch):
@@ -178,7 +185,7 @@ def get_loggers(c: TrainingConfig):
     return loggers
 
 
-def get_callbacks(c: TrainingConfig):
+def get_callbacks(c: TrainingConfig) -> List[pl.callbacks.Callback]:
     return [
         pl.callbacks.EarlyStopping(
             monitor="val_loss",
@@ -198,7 +205,7 @@ def get_callbacks(c: TrainingConfig):
     ]
 
 
-def add_indices(sample, tokenizer, tokenizer_kwargs):
+def add_indices(sample: dict, tokenizer: PreTrainedTokenizerBase, tokenizer_kwargs: dict) -> dict:
     """
     Add the indices of the tokens that are different between the original and perturbed text to the sample dictionary.
     Function signature is intended to be used with the `map` method of the Hugging Face datasets library.
@@ -210,7 +217,7 @@ def add_indices(sample, tokenizer, tokenizer_kwargs):
     return sample
 
 
-def train_perturber(c: TrainingConfig):
+def train_perturber(c: TrainingConfig) -> PreTrainedModel:
     """
     Train a perturber model using the specified configuration.
     """

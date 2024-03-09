@@ -16,7 +16,11 @@ class PerturberConfig:
 
 class Perturber:
 
-    def __init__(self, model: Optional[Union[PreTrainedModel, str]] = None, config: Optional[PerturberConfig] = None):
+    def __init__(
+            self,
+            model: Optional[Union[PreTrainedModel, str]] = None,
+            config: Optional[PerturberConfig] = None
+    ) -> None:
         """
         Initializes the perturber with a model and configuration.
 
@@ -79,7 +83,8 @@ class Perturber:
             max_new_tokens=self.model.config.max_length
         )[0].lstrip()
 
-    def __call__(self, input_txt, mode='word_list', tokenizer_kwargs=None, retry_unchanged=False):
+    def __call__(self, input_txt, mode='word_list', tokenizer_kwargs=None, retry_unchanged=False
+                 ) -> Union[str, NotImplementedError]:
         """
         Perturbs the input text using the specified mode and returns the perturbed text. No target word or attribute
         needs to be specified for this method.
@@ -125,7 +130,7 @@ class PerturberTemplate:
     their occurrences in the input text.
     """
 
-    def __init__(self, sep: str = ",", pert_sep: str = "<PERT_SEP>", original: bool = False):
+    def __init__(self, sep: str = ",", pert_sep: str = "<PERT_SEP>", original: bool = False) -> None:
         self.sep = sep
         self.pert_sep = pert_sep if not original else f" {pert_sep}"
 
