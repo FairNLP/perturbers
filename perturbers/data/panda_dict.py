@@ -6,7 +6,14 @@ AGE_ATTRIBUTES = {"child", "young", "middle-aged", "senior", "adult"}
 ALL_ATTRIBUTES = GENDER_ATTRIBUTES | RACE_ATTRIBUTES | AGE_ATTRIBUTES
 
 
-def get_panda_dict():
+def get_panda_dict() -> dict[str, list[str]]:
+    """
+    Returns a dictionary of words and their associated attributes from the PANDA dataset. This can then serve as
+    frequency-weighted word list for perturbation targets in open text.
+
+    Returns:
+        A dictionary of words and their associated attributes from the PANDA dataset.
+    """
     dataset = load_dataset("facebook/panda")
     dataset = concatenate_datasets([dataset['train'], dataset['validation']])
     perturbation_dict = {}

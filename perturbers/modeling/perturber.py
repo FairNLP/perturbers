@@ -16,7 +16,22 @@ class PerturberConfig:
 
 class Perturber:
 
-    def __init__(self, model: Optional[Union[PreTrainedModel, str]] = None, config: Optional[PerturberConfig] = None):
+    def __init__(
+            self,
+            model: Optional[Union[PreTrainedModel, str]] = None,
+            config: Optional[PerturberConfig] = None
+    ) -> None:
+        """
+        Initializes the perturber with a model and configuration.
+
+        Args:
+            model: The model to be used for perturbation. This can either be an instance of a PreTrainedModel or a
+                string representing the model name. If not provided, the original perturber model is used.
+
+            config: An instance of the PerturberConfig class that contains configuration parameters for the
+                perturber. If not provided, the default configuration is used.
+        """
+
         self.config = config if config is not None else PerturberConfig()
 
         if isinstance(model, PreTrainedModel):
@@ -40,8 +55,26 @@ class Perturber:
                                                 original=model_name == "facebook/perturber")
 
     def generate(self, input_txt: str, word: str = "", attribute: str = "", tokenizer_kwargs=None) -> str:
+        """
+        Generates a perturbed version of the input text.
+
+        Args:
+            input_txt: String to be perturbed
+
+            word: The word of input_txt to be perturbed
+
+            attribute: The attribute of the word to be perturbed
+
+            tokenizer_kwargs: Additional keyword arguments to be passed to the tokenizer
+
+        Returns:
+            Perturbed version of the input text
+        """
+
         if tokenizer_kwargs is None:
             tokenizer_kwargs = {}
+        if attribute and attribute not in ALL_ATTRIBUTES:
+            raise ValueError(f"Attribute {attribute} not in {ALL_ATTRIBUTES}")
         input_txt = self.input_template(input_txt, word, attribute)
         output_tokens = self.model.generate(**self.tokenizer(input_txt, return_tensors='pt'), **tokenizer_kwargs)
         return self.tokenizer.batch_decode(
@@ -50,8 +83,25 @@ class Perturber:
             max_new_tokens=self.model.config.max_length
         )[0].lstrip()
 
-    def __call__(self, input_txt, mode='word_list', tokenizer_kwargs=None, retry_unchanged=False):
+    def __call__(self, input_txt, mode='word_list', tokenizer_kwargs=None, retry_unchanged=False
+                 ) -> Union[str, NotImplementedError]:
+        """
+        Perturbs the input text using the specified mode and returns the perturbed text. No target word or attribute
+        needs to be specified for this method.
 
+        Args:
+            input_txt: The input text to be perturbed
+
+            mode: The mode to be used for perturbation. Currently, only 'word_list' is supported
+
+            tokenizer_kwargs: Additional keyword arguments to be passed to the tokenizer
+
+            retry_unchanged: If True, perturbation is retried with different target words/attributes until the output is
+            different from the input
+
+        Returns:
+            Perturbed version of the input text
+        """
         if tokenizer_kwargs is None:
             tokenizer_kwargs = {}
 
@@ -73,8 +123,14 @@ class Perturber:
 
 
 class PerturberTemplate:
+    """
+    A template for generating perturbed text from input text, word and attribute. A distinction is made between the
+    template of the original paper and the template used to train models with this library, which use the <SEP> token
+    instead of a comma. Words are prefixed with a space so that the target word and attribute have the same token as
+    their occurrences in the input text.
+    """
 
-    def __init__(self, sep: str = ",", pert_sep: str = "<PERT_SEP>", original: bool = False):
+    def __init__(self, sep: str = ",", pert_sep: str = "<PERT_SEP>", original: bool = False) -> None:
         self.sep = sep
         self.pert_sep = pert_sep if not original else f" {pert_sep}"
 

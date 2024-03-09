@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
-from typing import Optional
+from typing import Optional, List
 
 
 @dataclass
@@ -34,7 +34,17 @@ class TrainingConfig:
     num_workers: int = 0
 
 
-def get_diff_indices(tokens1, tokens2):
+def get_diff_indices(tokens1: List[int], tokens2: List[int]) -> List[int]:
+    """
+    Get the indices of the tokens in tokens2 that differ from those in tokens1 using difflib's SequenceMatcher.
+
+    Args:
+        tokens1: Original tokens
+        tokens2: Pertubed tokens
+
+    Returns:
+        List of indices of tokens in tokens2 that differ from those in tokens1
+    """
     matcher = SequenceMatcher(None, tokens1, tokens2)
     diff_indices = []
 
