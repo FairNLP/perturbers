@@ -6,6 +6,7 @@ from typing import Optional, List
 
 @dataclass
 class TrainingConfig:
+    conditional: bool = True
     model_name: str = "facebook/bart-large"
     dataset_name: str = "facebook/panda"
     train_batch_size: int = 64
