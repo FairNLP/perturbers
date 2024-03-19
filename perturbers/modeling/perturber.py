@@ -60,7 +60,6 @@ class Perturber:
 
         self.attribute_to_token = {a: attribute_to_token(a) for a in ALL_ATTRIBUTES}
         self.token_to_attribute = {t: a for a, t in self.attribute_to_token.items()}
-        self.attribute_tokens = {attribute_to_token(a) for a in ALL_ATTRIBUTES}
 
         self.model.config.max_length = self.config.max_length
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, add_prefix_space=True)
@@ -132,8 +131,8 @@ class Perturber:
         generate_kwargs["output_scores"] = True
 
         # Validate the attribute -- generated attribute is validated after generation
-        if self.config.conditional and attribute and attribute not in ALL_ATTRIBUTES:
-            raise ValueError(f"Attribute {attribute} not in {ALL_ATTRIBUTES}")
+        if self.config.conditional and attribute and attribute not in self.attribute_to_token:
+            raise ValueError(f"Attribute {attribute} not in {self.attribute_to_token.keys()}")
 
         if self.config.conditional:
             input_txt = self.input_template(input_txt, word, attribute)
