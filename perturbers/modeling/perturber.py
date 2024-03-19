@@ -58,6 +58,10 @@ class Perturber:
             logging.info("Inferring unconditional perturber from model name")
             self.config.conditional = False
 
+        self.attribute_to_token = {a: attribute_to_token(a) for a in ALL_ATTRIBUTES}
+        self.token_to_attribute = {t: a for a, t in self.attribute_to_token.items()}
+        self.attribute_tokens = {attribute_to_token(a) for a in ALL_ATTRIBUTES}
+
         self.model.config.max_length = self.config.max_length
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, add_prefix_space=True)
         self.tokenizer.add_tokens([self.config.pert_sep_token], special_tokens=True)
@@ -93,12 +97,12 @@ class Perturber:
         target_tokens = generation[:, 3:]
 
         # Hack to prevent double brackets from InputTemplate
-        attributes = [a[1:-1] for a in self.tokenizer.batch_decode(attribute_tokens,
-                                                                   max_new_tokens=self.model.config.max_length)]
+        attributes = [self.token_to_attribute.get(a) for a in self.tokenizer.batch_decode(attribute_tokens,
+                                                                                          max_new_tokens=self.model.config.max_length)]
         target_words = [w.lstrip() for w in self.tokenizer.batch_decode(target_tokens, skip_special_tokens=True,
                                                                         max_new_tokens=self.model.config.max_length)]
-        # TODO filter for non-valid attributes - could theoretically be a hallucatination
-        return list(zip(target_words, attributes))
+        # Filter attribute hallucinations (unlikely)
+        return [(w, a) for idx, (w, a) in enumerate(zip(target_words, attributes)) if a is not None]
 
     def generate(self, input_txt: str, word: str = "", attribute: str = "", tokenizer_kwargs: Optional[dict] = None,
                  generate_kwargs: Optional[dict] = None) -> Tuple[str, float]:
@@ -126,18 +130,19 @@ class Perturber:
             generate_kwargs = {}
         generate_kwargs["return_dict_in_generate"] = True
         generate_kwargs["output_scores"] = True
-        if self.config.conditional and attribute and attribute not in ALL_ATTRIBUTES:  # TODO validation for unconditional
+
+        # Validate the attribute -- generated attribute is validated after generation
+        if self.config.conditional and attribute and attribute not in ALL_ATTRIBUTES:
             raise ValueError(f"Attribute {attribute} not in {ALL_ATTRIBUTES}")
+
         if self.config.conditional:
             input_txt = self.input_template(input_txt, word, attribute)
             tokens = self.tokenizer(input_txt, return_tensors='pt', **tokenizer_kwargs)
-            # TODO also check BOS tokenization here
             outputs = self.model.generate(**tokens, **generate_kwargs)
         else:
             prefix = self.tokenizer.bos_token + self.input_template.get_sentence_prefix(word, attribute)
             encoder_tokens = self.tokenizer(input_txt, return_tensors='pt', **tokenizer_kwargs)
             decoder_tokens = self.tokenizer(prefix, return_tensors='pt', add_special_tokens=False, **tokenizer_kwargs)
-            # TODO gen config with disabled BOS ?
             outputs = self.model.generate(
                 input_ids=encoder_tokens.data["input_ids"],
                 attention_mask=encoder_tokens.data["attention_mask"],
@@ -153,19 +158,15 @@ class Perturber:
         if self.config.conditional:
             decode_tokens = outputs.sequences
         else:
-            output_string = self.tokenizer.batch_decode(  # TODO this is ugly - can it be non-batched
-                outputs.sequences,
-                skip_special_tokens=False,
-                max_new_tokens=self.model.config.max_length
-            )[0]
+            output_string = self.tokenizer.decode(
+                outputs.sequences[0], skip_special_tokens=False, max_new_tokens=self.model.config.max_length
+            )
             output_string = self.config.pert_sep_token.join(output_string.split(self.config.pert_sep_token)[1:])
             decode_tokens = self.tokenizer(output_string, return_tensors='pt').input_ids
-        output_string = self.tokenizer.batch_decode(  # TODO this is ugly - can it be non-batched
-            decode_tokens,
-            skip_special_tokens=True,
-            max_new_tokens=self.model.config.max_length
-        )[0].lstrip()
-        return output_string
+        output_string = self.tokenizer.decode(
+            decode_tokens[0], skip_special_tokens=True, max_new_tokens=self.model.config.max_length
+        )
+        return output_string.lstrip()  # Remove trailing space from tokenization
 
     def __call__(self, input_txt: str, mode: Optional[Literal['word_list', 'highest_prob', 'classify']] = None,
                  tokenizer_kwargs: Optional[dict] = None, generate_kwargs: Optional[dict] = None,
