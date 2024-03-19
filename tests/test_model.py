@@ -9,19 +9,19 @@ PERTURBED_BASE = "Jacqueline was passionate about rock climbing and her love for
 def test_perturber_model():
     model = Perturber()
 
-    perturbed = model.generate(UNPERTURBED, "Jack", "woman")
+    perturbed, probability = model.generate(UNPERTURBED, "Jack", "woman")
     assert perturbed == PERTURBED_ORIGINAL
 
 
 def test_small_perturber_model():
     model = Perturber("fairnlp/perturber-small")
 
-    perturbed = model.generate(UNPERTURBED, "Jack", "woman")
+    perturbed, probability = model.generate(UNPERTURBED, "Jack", "woman")
     assert perturbed == PERTURBED_SMALL
 
 
 def test_base_perturber_model():
     model = Perturber("fairnlp/perturber-base")
 
-    perturbed = model.generate(UNPERTURBED, "Jack", "woman")
+    perturbed, probability = model.generate(UNPERTURBED, "Jack", "woman")
     assert perturbed == PERTURBED_BASE
