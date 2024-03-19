@@ -1,4 +1,5 @@
 from perturbers import Perturber
+from perturbers.modeling.perturber import PerturberConfig
 
 
 def test_word_list():
@@ -10,8 +11,11 @@ def test_word_list():
     )
 
 
-def test_highest_prob():
-    model = Perturber("hf-internal-testing/tiny-random-bart")
+def test_classify():
+    model = Perturber(
+        model="hf-internal-testing/tiny-random-bart",
+        config=PerturberConfig(conditional=False, max_length=8),
+    )
     model(
         mode="classify",
         input_txt="a",
