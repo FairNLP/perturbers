@@ -190,17 +190,21 @@ class Perturber:
         Returns:
             Perturbed version of the input text
         """
+        # Input validation
         if tokenizer_kwargs is None:
             tokenizer_kwargs = {}
         if generate_kwargs is None:
             generate_kwargs = {}
         if n_perturbations < 1:
             raise ValueError(f"At least one perturbation needs to be tried. Received {n_perturbations} as argument.")
-        if mode is not None and mode not in {'word_list', 'classify'}:  # TODO rename these
-            raise ValueError(f"Mode {mode} is invalid. Please choose from 'highest_prob, 'word_list' or 'classify'.")
+        if mode is not None and mode not in {'word_list', 'classify'}:
+            raise ValueError(f"Mode {mode} is invalid. Please choose from 'word_list' or 'classify'.")
         if mode is None:
             mode = 'word_list' if self.config.conditional else 'classify'
+        elif mode == 'classify' and self.config.conditional:
+            raise ValueError("Conditional perturber models are not trained for attribute classification")
 
+        # Get perturbation targets and words
         if mode == 'word_list':
             targets = [w for w in input_txt.split(" ") if w in self.panda_dict]
             perturbations = [(t, perturbed) for t in targets for perturbed in self.panda_dict[t]]

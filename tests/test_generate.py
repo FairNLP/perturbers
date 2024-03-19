@@ -13,7 +13,7 @@ def test_word_list():
 def test_highest_prob():
     model = Perturber("hf-internal-testing/tiny-random-bart")
     model(
-        mode="highest_prob",
+        mode="classify",
         input_txt="a",
         generate_kwargs={"max_new_tokens": 2}
     )
