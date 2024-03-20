@@ -61,23 +61,20 @@ def test_prepare_inputs_unconditional():
         conditional=False,
     )
     preprocessed = get_preprocessed_sample(c)
-    span = get_span_at_idx(
+    assert get_span_at_idx(
         sequence=preprocessed["perturbed"],
         token_idx=preprocessed["perturbed_idx"],
         c=c,
-    )
-    assert span == perturbed_span
+    ) == perturbed_span
 
-    span = get_span_at_idx(
-        sequence=preprocessed["original"],
+    assert get_span_at_idx(
+        sequence=preprocessed["perturbed"],
         token_idx=preprocessed["word_idx"],
         c=c,
-    )
-    assert span == selected_word_span
+    ) == selected_word_span
 
-    span = get_span_at_idx(
-        sequence=preprocessed["original"],
+    assert get_span_at_idx(
+        sequence=preprocessed["perturbed"],
         token_idx=preprocessed["attribute_idx"],
         c=c,
-    )
-    assert span == target_attribute_span
+    ) == target_attribute_span
