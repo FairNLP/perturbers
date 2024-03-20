@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Union, Literal, Tuple, List
 
 import numpy as np
+import torch
 from transformers import BartForConditionalGeneration, AutoTokenizer, PreTrainedModel
 from transformers.generation.configuration_utils import GenerationConfig
 
@@ -74,11 +75,38 @@ class Perturber:
                                                 original=model_name == "facebook/perturber",
                                                 conditional=self.config.conditional)
 
-    def get_attribute_probabilities(self, input_txt: str):
+    def get_attribute_probabilities(self, input_txt: str, softmax: bool = True,
+                                    attributes: Optional[dict[str, str]] = None) -> dict[str, float]:
+        # TODO add option to normalize for prior, e.g. p(man) < p(woman) due to PANDA imbalance
+        """
+        Given a certain input string, get a conditional probability distribution over a specified set of attributes.
+
+        Args:
+            input_txt: string to base the probability distribution on.
+
+            softmax: if True, apply a softmax over the logits, else return the likelihood values.
+
+            attributes: mapping of attributes to tokens for which to get probabilities. Default is all attributes.
+        """
+        if attributes is None:
+            attributes = self.attribute_to_token
+
         if self.config.conditional:
             raise RuntimeError("Attribute classification is not possible for conditional perturber models")
-        # TODO unconditional perturber methods for classifying the attribute and
-        attribute_tokens = []
+        decoder_inputs = self.tokenizer(self.tokenizer.bos_token, return_tensors='pt', add_special_tokens=False)
+        logits = self.model(
+            **self.tokenizer(input_txt, return_tensors='pt'),
+            decoder_input_ids=decoder_inputs.data["input_ids"],
+            decoder_attention_mask=decoder_inputs.data["attention_mask"],
+        ).logits[0, -1]
+        assert len(logits.shape) == 1 and logits.shape[0] == len(self.tokenizer.vocab)
+
+        if softmax:
+            token_logits = torch.tensor([logits[self.tokenizer.vocab[t]] for t in attributes.values()])
+            softmax_probs = torch.softmax(token_logits, dim=0)
+            return {a: float(prob) for a, prob in zip(attributes.keys(), softmax_probs)}
+        else:
+            return {a: float(logits[self.tokenizer.vocab[t]].exp()) for a, t in attributes.items()}
 
     def generate_conditions(self, input_txt: str, n_permutations: int, tokenizer_kwargs: dict) -> List[tuple[str, str]]:
         if self.config.conditional:
