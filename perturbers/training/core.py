@@ -231,7 +231,7 @@ def get_callbacks(c: TrainingConfig) -> List[pl.callbacks.Callback]:
 
 
 def preprocess_inputs(sample: dict, tokenizer: PreTrainedTokenizerBase, tokenizer_kwargs: dict, c: TrainingConfig,
-                      input_template: PerturberTemplate) -> dict:
+                      input_template: PerturberTemplate, tokenize: bool = True) -> dict:
     """
     Add the indices of the tokens that are different between the original and perturbed text to the sample dictionary.
     Function signature is intended to be used with the `map` method of the Hugging Face datasets library.
@@ -266,8 +266,9 @@ def preprocess_inputs(sample: dict, tokenizer: PreTrainedTokenizerBase, tokenize
         for idx_key in ["perturbed_idx", "word_idx", "attribute_idx"]:
             sample[idx_key] = [i for i in sample[idx_key] if i < c.max_length]
 
-    sample['original'] = tokenizer(sample['original'], **tokenizer_kwargs)
-    sample['perturbed'] = tokenizer(sample['perturbed'], **tokenizer_kwargs)
+    if tokenize:
+        sample['original'] = tokenizer(sample['original'], **tokenizer_kwargs)
+        sample['perturbed'] = tokenizer(sample['perturbed'], **tokenizer_kwargs)
 
     return sample
 

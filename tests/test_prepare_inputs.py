@@ -27,6 +27,7 @@ def get_preprocessed_sample(c: TrainingConfig) -> dict:
         tokenizer_kwargs=tokenizer_kwargs,
         c=c,
         input_template=input_template,
+        tokenize=False,
     )
     return preprocessed
 
