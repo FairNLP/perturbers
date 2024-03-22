@@ -3,7 +3,7 @@ from perturbers.data.panda_dict import GENDER_ATTRIBUTES, ALL_ATTRIBUTES, attrib
 
 UNPERTURBED = "Jack was passionate about rock climbing and his love for the sport was infectious to all men around him."
 PERTURBED_SMALL = "Mary was passionate about rock climbing and her love for the sport was infectious to all men around her."
-PERTURBED_BASE = "Jane was passionate about rock climbing and her love for the sport was infectious to all men around her."
+PERTURBED_BASE = "Jacqueline was passionate about rock climbing and her love for the sport was infectious to all men around her."
 
 
 def test_small_perturber_model():
