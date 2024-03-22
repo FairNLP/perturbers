@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from torchmetrics.text import Perplexity, BLEUScore
 from transformers import AutoModel, BartForConditionalGeneration  # noqa 401
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import DataCollatorWithPadding
 from transformers import PreTrainedTokenizerBase, PreTrainedModel
 
 from perturbers.data.panda_dict import get_attribute_tokens
@@ -159,6 +160,7 @@ def get_collate_fn(c: TrainingConfig, tokenizer: PreTrainedTokenizerBase, tokeni
     Returns:
         The collate function for the dataloaders
     """
+    collator = DataCollatorWithPadding(tokenizer=tokenizer, return_tensors='pt', padding=True)
 
     def collate_fn(batch: List) -> dict:
         original, perturbed = [], []
@@ -182,8 +184,8 @@ def get_collate_fn(c: TrainingConfig, tokenizer: PreTrainedTokenizerBase, tokeni
                 attribute_x += [i] * len(attribute_idx)
                 attribute_y += attribute_idx
 
-        original = tokenizer(original, return_tensors='pt', **tokenizer_kwargs)
-        perturbed = tokenizer(perturbed, return_tensors='pt', **tokenizer_kwargs)
+        original = collator(original)
+        perturbed = collator(perturbed)
 
         return_dict = {
             "input_ids": original["input_ids"],
@@ -263,6 +265,9 @@ def preprocess_inputs(sample: dict, tokenizer: PreTrainedTokenizerBase, tokenize
 
         for idx_key in ["perturbed_idx", "word_idx", "attribute_idx"]:
             sample[idx_key] = [i for i in sample[idx_key] if i < c.max_length]
+
+    sample['original'] = tokenizer(sample['original'], **tokenizer_kwargs)
+    sample['perturbed'] = tokenizer(sample['perturbed'], **tokenizer_kwargs)
 
     return sample
 
