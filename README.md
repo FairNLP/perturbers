@@ -60,12 +60,19 @@ approaching 1
 
 **The perplexity and BLEU4 scores are those reported in the original paper and not measured via this codebase.
 
+And unconditional perturber models:
+
+|                                                                                               | Base model                                                   | Parameters | Perplexity | Perplexity (perturbed idx) | Perplexity (word) | Perplexity (attribute) |
+|-----------------------------------------------------------------------------------------------|--------------------------------------------------------------|------------|------------|----------------------------|-------------------|------------------------|
+| [unconditional-perturber-small](https://huggingface.co/fairnlp/unconditional-perturber-small) | [bart-small](https://huggingface.co/lucadiliello/bart-small) | 70m        | 1.101      | 4.265                      | 5.262             | 5.635                  |
+| [unconditional-perturber-base](https://huggingface.co/fairnlp/unconditional-perturber-base)   | [bart-base](https://huggingface.co/facebook/bart-base)       | 139m       | 1.082      | 2.897                      | 4.537             | 5.328                  |
+
 # Roadmap
 
 - [x] Add default perturber model
 - [x] Pretrain small and medium perturber models
-- [ ] Train model to identify target words and attributes
-- [ ] Add training of unconditional perturber models (i.e. only get a sentence, no target word/attribute)
+- [x] Add training of unconditional perturber models (i.e. only get a sentence, no target word/attribute)
+- [ ] Add
 - [ ] Add self-training by pretraining perturber base model (e.g. BART) on self-perturbed data
 
 Other features could include

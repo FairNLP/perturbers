@@ -39,7 +39,7 @@ setup(
     tests_require=TEST_REQUIREMENTS,
     extras_require=EXTRAS_REQUIREMENTS,
     url="https://github.com/FairNLP/perturbers",
-    version="0.0.0",
+    version="0.0.1",
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     zip_safe=False,

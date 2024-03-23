@@ -11,8 +11,10 @@ from torch.utils.data import DataLoader
 from torchmetrics.text import Perplexity, BLEUScore
 from transformers import AutoModel, BartForConditionalGeneration  # noqa 401
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import DataCollatorWithPadding
 from transformers import PreTrainedTokenizerBase, PreTrainedModel
 
+from perturbers.data.panda_dict import get_attribute_tokens
 from perturbers.modeling.perturber import PerturberTemplate
 from perturbers.training.utils import TrainingConfig, get_diff_indices
 
@@ -37,15 +39,18 @@ class LightningWrapper(lightning.LightningModule):
         self.test_batch_size = c.test_batch_size
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
 
-        self.train_metrics = self.get_metric_dict("train")
-        self.val_metrics = self.get_metric_dict("val")
-        self.test_metrics = self.get_metric_dict("test")
+        self.train_metrics = self.get_metric_dict(c, "train")
+        self.val_metrics = self.get_metric_dict(c, "val")
+        self.test_metrics = self.get_metric_dict(c, "test")
 
-    def get_metric_dict(self, split: str) -> dict[str, torch.nn.Module]:
+    def get_metric_dict(self, c: TrainingConfig, split: str) -> dict[str, torch.nn.Module]:
         metrics = {
             f'{split}_ppl': Perplexity(ignore_index=self.tokenizer.pad_token_id).to(self._device),
             f'{split}_ppl_perturbed': Perplexity(ignore_index=self.tokenizer.pad_token_id).to(self._device),
         }
+        if not c.conditional:
+            metrics[f'{split}_ppl_word'] = Perplexity(ignore_index=self.tokenizer.pad_token_id).to(self._device)
+            metrics[f'{split}_ppl_attribute'] = Perplexity(ignore_index=self.tokenizer.pad_token_id).to(self._device)
         if split == "test":
             metrics[f'{split}_bleu4'] = BLEUScore(n_gram=4).to(self._device)
         return metrics
@@ -64,8 +69,14 @@ class LightningWrapper(lightning.LightningModule):
                     target=[[_] for _ in self.tokenizer.batch_decode(batch['labels'], skip_special_tokens=True)],
                 )
             elif "ppl" in metric_key:
-                if "perturbed" in metric_key:
+                idx = None
+                if metric_key.endswith("perturbed"):
                     idx = batch["perturbed_idx"]
+                elif metric_key.endswith("word"):
+                    idx = batch["word_idx"]
+                elif metric_key.endswith("attribute"):
+                    idx = batch["attribute_idx"]
+                if idx is not None:
                     value = metric(preds=outputs[idx].unsqueeze(0), target=batch['labels'][idx].unsqueeze(0))
                 else:
                     value = metric(preds=outputs, target=batch['labels'])
@@ -112,10 +123,7 @@ class LightningWrapper(lightning.LightningModule):
         return outputs.logits, outputs.loss
 
     def generate(self, batch: dict) -> List[str]:
-        generations = self.model.generate(
-            **{k: v for k, v in batch.items() if k in ["input_ids", "attention_mask"]},
-            max_length=batch['input_ids'].shape[-1],
-        )
+        generations = self.model.generate(**{k: v for k, v in batch.items() if k in ["input_ids", "attention_mask"]})
         return self.tokenizer.batch_decode(generations, skip_special_tokens=True)
 
     def configure_optimizers(self) -> Tuple[List[torch.optim.Optimizer], List[dict]]:
@@ -152,28 +160,45 @@ def get_collate_fn(c: TrainingConfig, tokenizer: PreTrainedTokenizerBase, tokeni
     Returns:
         The collate function for the dataloaders
     """
-    input_template = PerturberTemplate(sep=c.sep_token, pert_sep=c.pert_sep_token,
-                                       original=c.model_name == "facebook/perturber")
+    collator = DataCollatorWithPadding(tokenizer=tokenizer, return_tensors='pt', padding=True)
 
     def collate_fn(batch: List) -> dict:
         original, perturbed = [], []
         perturbed_x, perturbed_y = [], []
+        attribute_x, attribute_y = [], []
+        word_x, word_y = [], []
         for i, item in enumerate(batch):
-            perturbed.append(item['perturbed'])
-            original.append(input_template(item["original"], item["selected_word"], item["target_attribute"]))
-            idx = item["perturbed_idx"]
-            perturbed_x += [i] * len(idx)
-            perturbed_y += idx
+            original.append(item["original"])
+            perturbed.append(item["perturbed"])
 
-        original = tokenizer(original, return_tensors='pt', **tokenizer_kwargs)
-        perturbed = tokenizer(perturbed, return_tensors='pt', **tokenizer_kwargs)
+            perturbed_idx = item["perturbed_idx"]
+            perturbed_x += [i] * len(perturbed_idx)
+            perturbed_y += perturbed_idx
 
-        return {
+            if not c.conditional:
+                word_idx = item["word_idx"]
+                word_x += [i] * len(word_idx)
+                word_y += word_idx
+
+                attribute_idx = item["attribute_idx"]
+                attribute_x += [i] * len(attribute_idx)
+                attribute_y += attribute_idx
+
+        original = collator(original)
+        perturbed = collator(perturbed)
+
+        return_dict = {
             "input_ids": original["input_ids"],
             "attention_mask": original["attention_mask"],
             "labels": perturbed["input_ids"],
             "perturbed_idx": (perturbed_x, perturbed_y),
         }
+
+        if not c.conditional:
+            return_dict["word_idx"] = (word_x, word_y)
+            return_dict["attribute_idx"] = (attribute_x, attribute_y)
+
+        return return_dict
 
     return collate_fn
 
@@ -205,15 +230,46 @@ def get_callbacks(c: TrainingConfig) -> List[pl.callbacks.Callback]:
     ]
 
 
-def add_indices(sample: dict, tokenizer: PreTrainedTokenizerBase, tokenizer_kwargs: dict) -> dict:
+def preprocess_inputs(sample: dict, tokenizer: PreTrainedTokenizerBase, tokenizer_kwargs: dict, c: TrainingConfig,
+                      input_template: PerturberTemplate, tokenize: bool = True) -> dict:
     """
     Add the indices of the tokens that are different between the original and perturbed text to the sample dictionary.
     Function signature is intended to be used with the `map` method of the Hugging Face datasets library.
     """
-    sample["perturbed_idx"] = get_diff_indices(
+
+    idx = get_diff_indices(
         tokenizer(sample['original'], **tokenizer_kwargs).data['input_ids'],
-        tokenizer(sample['perturbed'], **tokenizer_kwargs).data['input_ids']
+        tokenizer(sample['perturbed'], **tokenizer_kwargs).data['input_ids'],
     )
+
+    if c.conditional:
+        sample["perturbed_idx"] = idx
+        sample['original'] = input_template(sample["original"], sample["selected_word"], sample["target_attribute"])
+    else:
+
+        # Account for prefix in perturbed indices
+        sentence_prefix = input_template.get_sentence_prefix(sample["selected_word"], sample["target_attribute"])
+        sentence_offset = len(tokenizer.tokenize(sentence_prefix))
+        sample["perturbed_idx"] = [i + sentence_offset for i in idx]
+        sample["perturbed"] = input_template(sample["perturbed"], sample["selected_word"], sample["target_attribute"])
+
+        # Add indices for word and attribute
+        n_cls_tokens = len(tokenizer.tokenize(tokenizer.bos_token))
+        word_prefix = input_template.get_word_prefix(sample["selected_word"], sample["target_attribute"])
+        word_offset = len(tokenizer.tokenize(word_prefix)) + n_cls_tokens
+        sample["word_idx"] = [i + word_offset for i in range(len(tokenizer.tokenize(sample["selected_word"])))]
+
+        attribute_prefix = input_template.get_attribute_prefix(sample["selected_word"], sample["target_attribute"])
+        attribute_offset = len(tokenizer.tokenize(attribute_prefix)) + n_cls_tokens
+        sample["attribute_idx"] = [attribute_offset]  # Only one attribute token
+
+        for idx_key in ["perturbed_idx", "word_idx", "attribute_idx"]:
+            sample[idx_key] = [i for i in sample[idx_key] if i < c.max_length]
+
+    if tokenize:
+        sample['original'] = tokenizer(sample['original'], **tokenizer_kwargs)
+        sample['perturbed'] = tokenizer(sample['perturbed'], **tokenizer_kwargs)
+
     return sample
 
 
@@ -227,12 +283,14 @@ def train_perturber(c: TrainingConfig) -> PreTrainedModel:
         c.train_steps = 10
         c.val_steps = 5
         c.accumulate_grad_batches = 1
+        c.num_workers = 0
 
-    tokenizer = AutoTokenizer.from_pretrained(c.model_name, add_prefix_space=True)
-    tokenizer.add_tokens([c.sep_token, c.pert_sep_token], special_tokens=True)
-    tokenizer_kwargs = {"padding": True, "truncation": True, "max_length": c.max_length}
+    tokenizer, tokenizer_kwargs = get_tokenizer(c)
     model = LightningWrapper(c, tokenizer)
     dataset = load_dataset(c.dataset_name)
+
+    input_template = PerturberTemplate(sep=c.sep_token, pert_sep=c.pert_sep_token,
+                                       original=c.model_name == "facebook/perturber", conditional=c.conditional)
 
     train_ds = dataset["train"]
     val_ds = dataset["validation"]
@@ -241,8 +299,9 @@ def train_perturber(c: TrainingConfig) -> PreTrainedModel:
         train_ds = train_ds.select(range(128))
         val_ds = val_ds.select(range(128))
 
-    train_ds = train_ds.map(lambda x: add_indices(x, tokenizer, tokenizer_kwargs), num_proc=max(c.num_workers, 1))
-    val_ds = val_ds.map(lambda x: add_indices(x, tokenizer, tokenizer_kwargs), num_proc=max(c.num_workers, 1))
+    map_fn = lambda x: preprocess_inputs(x, tokenizer, tokenizer_kwargs, c, input_template)
+    train_ds = train_ds.map(map_fn, num_proc=max(c.num_workers, 1))
+    val_ds = val_ds.map(map_fn, num_proc=max(c.num_workers, 1))
 
     collate_fn = get_collate_fn(c, tokenizer, tokenizer_kwargs)
 
@@ -285,3 +344,13 @@ def train_perturber(c: TrainingConfig) -> PreTrainedModel:
         tokenizer.push_to_hub(c.hub_repo_id)
 
     return model.model
+
+
+def get_tokenizer(c):
+    tokenizer = AutoTokenizer.from_pretrained(c.model_name, add_prefix_space=True)
+    new_tokens = [c.sep_token, c.pert_sep_token]
+    if not c.conditional:
+        new_tokens += get_attribute_tokens()
+    tokenizer.add_tokens(new_tokens, special_tokens=True)
+    tokenizer_kwargs = {"padding": True, "truncation": True, "max_length": c.max_length}
+    return tokenizer, tokenizer_kwargs
